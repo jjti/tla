@@ -1,0 +1,82 @@
+    \* heartbeats to followers.
+    \* procedure Heartbeat(pid) {
+    \*     heartbeat_noop:
+    \*     if (state[pid] /= "leader") {
+    \*         return;
+    \*     };
+
+    \*     heartbeat_incr:
+    \*     term[pid] := term[pid] + 1;
+
+    \*     Send(pid, [
+    \*         type |-> "heartbeats",
+    \*         term |-> term[pid]
+    \*     ]);
+    \*     return;
+    \* }
+
+    \* countdown the timeout until triggering an election.
+    \* procedure Countdown(pid) {
+    \*     countdown_noop:
+    \*     if (state[pid] /= "follower" \/ heartbeats[pid] = 0) {
+    \*         return;
+    \*     };
+
+    \*     countdown_incr:
+    \*     heartbeats[pid] := heartbeats[pid] - 1;
+    \*     return;
+    \* }
+
+    \* become leader and assert leadership.
+    \* procedure WinElection(pid) {
+    \*     \* bail if this is not a candidate or any other server is not in follower mode.
+    \*     win_election_check:
+    \*     if (state[pid] /= "candidate" \/ \E s \in (Leaders \ {pid}) : state[s] = "follower") {
+    \*         return;
+    \*     };
+
+    \*     win_election_incr:
+    \*     state[pid] := "leader";
+    \*     term[pid]  := term[pid] + 1;
+
+    \*     Send(pid, [
+    \*         type |-> "heartbeats",
+    \*         term |-> term[pid]
+    \*     ]);
+    \*     return;
+    \* }
+
+
+        \* \* receive a message from another server.
+    \* procedure Recv(pid) variables msg ; {
+    \*     recv_subsets:
+    \*     with (sub \in SUBSET msgs[pid]) {
+    \*         msgs[pid] := msgs[pid] / sub;
+
+    \*         while (sub # {}) {
+    \*             with (msg \in msgs) {
+    \*                 recv_follower:
+
+
+    \*                 sub := sub / {msg};
+    \*             };
+    \*         };
+    \*     };
+    \*     \* recv_pop:
+    \*     \* msg := Head(msgs[pid]);
+    \*     \* msgs[pid] := Tail(msgs[pid]);
+    \*     \* recv_done:
+
+    \*     \* \* this server lost in an election, other server had same or higher term.
+    \*     \* if (msg.term >= term[pid]) {
+    \*     \*     state[pid] := "follower";
+    \*     \* } else {
+    \*     \*     \* was sent a heartbeats from a leader.
+    \*     \*     recv_heartbeat:
+    \*     \*     if (state[pid] = "follower" /\ msg.type = "heartbeats" /\ msg.term >= term[pid]) {
+    \*     \*         heartbeats[pid] := HeartbeatTimeout;
+    \*     \*     };
+    \*     \* };
+
+    \*     return;
+    \* }
