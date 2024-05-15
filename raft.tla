@@ -15,23 +15,26 @@ ASSUME
 (* --algorithm Raft {
     variables
         \* states of the leaders. leader, follower, or candidate.
-        states = [l \in Servers |-> "follower"],
+        states = [l \in Leaders |-> "follower"],
 
         \* servers submit votes during an election.
-        votes = [l \in Servers |-> << >>],
+        votes = [l \in Leaders |-> << >>],
 
-        \* servers send followers heartbeats.
-        heartbeats = [l \in Servers |-> << >>],
+        \* servers send followers msgs.
+        msgs = [l \in Leaders |-> << >>],
+
+        \* the log of each server.
+        logs = [l \in Leaders |-> << >>],
 
         \* whether the last heartbeat was dropped.
-        heartbeat_dropped = [l \in Servers |-> FALSE],
+        heartbeat_dropped = [l \in Leaders |-> TRUE],
 
-        \* each server's current term. Unique to gaurantee at least server wins election.
-        terms = [l \in Servers |-> 0];
+        \* each server's current term.
+        terms = [l \in Leaders |-> 0];
 
     define {
-        \* all the servers.
-        Servers == 1..N
+        \* all the servers (attempting to become leaders).
+        Leaders == 1..N
 
         \* all the voters.
         Voters == N+1..N*2
@@ -39,7 +42,7 @@ ASSUME
         \* all the followers.
         Followers == N*2+1..N*3
         
-        \* set a message to all the server queues.
+        \* send a message to all server queues.
         Send(queues, msg) == [i \in 1..Len(queues) |-> Append(queues[i], msg)]
 
         \* overall invariant.
@@ -48,12 +51,13 @@ ASSUME
             Len(SelectSeq(states, LAMBDA s: s = "leader")) <= 1
     }
 
-    \* send a heartbeat to all servers with the latest term.
-    macro Heartbeat(pid) {
+    \* append entries to the log, increment term.
+    macro AppendEntries(pid, data) {
         terms[pid] := terms[pid] + 1;
-        heartbeats := Send(heartbeats, [
-            src  |-> pid,
-            term |-> terms[pid]
+        msgs := Send(msgs, [
+            src  |-> pid,        \* for debugging
+            term |-> terms[pid],
+            data |-> data
         ]);
     }
 
@@ -65,8 +69,8 @@ ASSUME
         states[pid] := "candidate";
         terms[pid]  := terms[pid] + 1;
         votes       := Send(votes, [
-            for  |-> pid, \* recipient of vote
-            from |-> pid, \* debugging
+            for  |-> pid,       \* recipient of vote
+            from |-> pid,       \* for debugging
             term |-> terms[pid]
         ]);
 
@@ -93,14 +97,14 @@ ASSUME
     }
 
     \* leader process.
-    fair process (l \in Servers)
+    fair process (l \in Leaders)
     variables pid = self;
     {
         leader_loop:
         while (terms[pid] < TermLimit) {
             leader_election:
             while (states[pid] /= "leader") {
-                \* when heartbeats reaches zero, start election as candidate.
+                \* when msgs reaches zero, start election as candidate.
                 request_vote:
                 RequestVote(pid);
 
@@ -109,8 +113,9 @@ ASSUME
                 CheckVotes(pid);
             };
 
+            \* send empty data.
             heartbeat:
-            Heartbeat(pid);
+            AppendEntries(pid, {});
         };
     };
 
@@ -140,21 +145,22 @@ ASSUME
 
     \* follower process.
     fair process (f \in Followers)
-    variables heartbeat_index = 1, pid = self - N*2;
+    variables log_index = 1, pid = self - N*2, msg = {};
     {
         follower_loop:
         while (terms[pid] < TermLimit) {
             either {
                 \* wait for a new heartbeat to arrive.
                 follower_recv_heartbeat:
-                await Len(heartbeats[pid]) = heartbeat_index;
+                await Len(msgs[pid]) = log_index;
 
-                if (heartbeats[pid][heartbeat_index].term >= terms[pid]) {
+                msg := msgs[pid][log_index];
+                if (msg.src /= pid /\ msg.term >= terms[pid]) {
                     states[pid] := "follower";
-                    terms[pid]  := heartbeats[pid][heartbeat_index].term;
+                    terms[pid]  := msg.term;
                 };
 
-                heartbeat_index        := heartbeat_index + 1;
+                log_index        := log_index + 1;
                 heartbeat_dropped[pid] := FALSE;
             } or {
                 follower_drop_heartbeat:
@@ -164,13 +170,13 @@ ASSUME
     };
 };
 *)
-\* BEGIN TRANSLATION (chksum(pcal) = "696496f5" /\ chksum(tla) = "eea29a1e")
-\* Process variable pid of process l at line 97 col 15 changed to pid_
-\* Process variable pid of process v at line 119 col 31 changed to pid_v
-VARIABLES states, votes, heartbeats, heartbeat_dropped, terms, pc
+\* BEGIN TRANSLATION (chksum(pcal) = "caaa3a1a" /\ chksum(tla) = "f706d3a4")
+\* Process variable pid of process l at line 101 col 15 changed to pid_
+\* Process variable pid of process v at line 124 col 31 changed to pid_v
+VARIABLES states, votes, msgs, logs, heartbeat_dropped, terms, pc
 
 (* define statement *)
-Servers == 1..N
+Leaders == 1..N
 
 
 Voters == N+1..N*2
@@ -186,28 +192,30 @@ TypeOK ==
 
     Len(SelectSeq(states, LAMBDA s: s = "leader")) <= 1
 
-VARIABLES pid_, vote_index, pid_v, heartbeat_index, pid
+VARIABLES pid_, vote_index, pid_v, log_index, pid, msg
 
-vars == << states, votes, heartbeats, heartbeat_dropped, terms, pc, pid_, 
-           vote_index, pid_v, heartbeat_index, pid >>
+vars == << states, votes, msgs, logs, heartbeat_dropped, terms, pc, pid_, 
+           vote_index, pid_v, log_index, pid, msg >>
 
-ProcSet == (Servers) \cup (Voters) \cup (Followers)
+ProcSet == (Leaders) \cup (Voters) \cup (Followers)
 
 Init == (* Global variables *)
-        /\ states = [l \in Servers |-> "follower"]
-        /\ votes = [l \in Servers |-> << >>]
-        /\ heartbeats = [l \in Servers |-> << >>]
-        /\ heartbeat_dropped = [l \in Servers |-> FALSE]
-        /\ terms = [l \in Servers |-> 0]
+        /\ states = [l \in Leaders |-> "follower"]
+        /\ votes = [l \in Leaders |-> << >>]
+        /\ msgs = [l \in Leaders |-> << >>]
+        /\ logs = [l \in Leaders |-> << >>]
+        /\ heartbeat_dropped = [l \in Leaders |-> TRUE]
+        /\ terms = [l \in Leaders |-> 0]
         (* Process l *)
-        /\ pid_ = [self \in Servers |-> self]
+        /\ pid_ = [self \in Leaders |-> self]
         (* Process v *)
         /\ vote_index = [self \in Voters |-> 1]
         /\ pid_v = [self \in Voters |-> self - N]
         (* Process f *)
-        /\ heartbeat_index = [self \in Followers |-> 1]
+        /\ log_index = [self \in Followers |-> 1]
         /\ pid = [self \in Followers |-> self - N*2]
-        /\ pc = [self \in ProcSet |-> CASE self \in Servers -> "leader_loop"
+        /\ msg = [self \in Followers |-> {}]
+        /\ pc = [self \in ProcSet |-> CASE self \in Leaders -> "leader_loop"
                                         [] self \in Voters -> "voter_loop"
                                         [] self \in Followers -> "follower_loop"]
 
@@ -215,18 +223,18 @@ leader_loop(self) == /\ pc[self] = "leader_loop"
                      /\ IF terms[pid_[self]] < TermLimit
                            THEN /\ pc' = [pc EXCEPT ![self] = "leader_election"]
                            ELSE /\ pc' = [pc EXCEPT ![self] = "Done"]
-                     /\ UNCHANGED << states, votes, heartbeats, 
+                     /\ UNCHANGED << states, votes, msgs, logs, 
                                      heartbeat_dropped, terms, pid_, 
-                                     vote_index, pid_v, heartbeat_index, pid >>
+                                     vote_index, pid_v, log_index, pid, msg >>
 
 leader_election(self) == /\ pc[self] = "leader_election"
                          /\ IF states[pid_[self]] /= "leader"
                                THEN /\ pc' = [pc EXCEPT ![self] = "request_vote"]
                                ELSE /\ pc' = [pc EXCEPT ![self] = "heartbeat"]
-                         /\ UNCHANGED << states, votes, heartbeats, 
+                         /\ UNCHANGED << states, votes, msgs, logs, 
                                          heartbeat_dropped, terms, pid_, 
-                                         vote_index, pid_v, heartbeat_index, 
-                                         pid >>
+                                         vote_index, pid_v, log_index, pid, 
+                                         msg >>
 
 request_vote(self) == /\ pc[self] = "request_vote"
                       /\ heartbeat_dropped[pid_[self]]
@@ -239,8 +247,8 @@ request_vote(self) == /\ pc[self] = "request_vote"
                                   ])
                       /\ heartbeat_dropped' = [heartbeat_dropped EXCEPT ![pid_[self]] = FALSE]
                       /\ pc' = [pc EXCEPT ![self] = "check_votes"]
-                      /\ UNCHANGED << heartbeats, pid_, vote_index, pid_v, 
-                                      heartbeat_index, pid >>
+                      /\ UNCHANGED << msgs, logs, pid_, vote_index, pid_v, 
+                                      log_index, pid, msg >>
 
 check_votes(self) == /\ pc[self] = "check_votes"
                      /\ \/ Len(SelectSeq(votes[pid_[self]], LAMBDA v: v.for = pid_[self] /\ v.term = terms[pid_[self]])) >= M
@@ -252,19 +260,21 @@ check_votes(self) == /\ pc[self] = "check_votes"
                            ELSE /\ states' = [states EXCEPT ![pid_[self]] = "leader"]
                                 /\ terms' = [terms EXCEPT ![pid_[self]] = terms[pid_[self]] + 1]
                      /\ pc' = [pc EXCEPT ![self] = "leader_election"]
-                     /\ UNCHANGED << votes, heartbeats, heartbeat_dropped, 
-                                     pid_, vote_index, pid_v, heartbeat_index, 
-                                     pid >>
+                     /\ UNCHANGED << votes, msgs, logs, heartbeat_dropped, 
+                                     pid_, vote_index, pid_v, log_index, pid, 
+                                     msg >>
 
 heartbeat(self) == /\ pc[self] = "heartbeat"
                    /\ terms' = [terms EXCEPT ![pid_[self]] = terms[pid_[self]] + 1]
-                   /\ heartbeats' =               Send(heartbeats, [
-                                        src  |-> pid_[self],
-                                        term |-> terms'[pid_[self]]
-                                    ])
+                   /\ msgs' =         Send(msgs, [
+                                  src  |-> pid_[self],
+                                  term |-> terms'[pid_[self]],
+                                  data |-> ({})
+                              ])
                    /\ pc' = [pc EXCEPT ![self] = "leader_loop"]
-                   /\ UNCHANGED << states, votes, heartbeat_dropped, pid_, 
-                                   vote_index, pid_v, heartbeat_index, pid >>
+                   /\ UNCHANGED << states, votes, logs, heartbeat_dropped, 
+                                   pid_, vote_index, pid_v, log_index, pid, 
+                                   msg >>
 
 l(self) == leader_loop(self) \/ leader_election(self) \/ request_vote(self)
               \/ check_votes(self) \/ heartbeat(self)
@@ -286,8 +296,8 @@ voter_loop(self) == /\ pc[self] = "voter_loop"
                                /\ pc' = [pc EXCEPT ![self] = "voter_loop"]
                           ELSE /\ pc' = [pc EXCEPT ![self] = "Done"]
                                /\ UNCHANGED << votes, vote_index >>
-                    /\ UNCHANGED << states, heartbeats, heartbeat_dropped, 
-                                    terms, pid_, pid_v, heartbeat_index, pid >>
+                    /\ UNCHANGED << states, msgs, logs, heartbeat_dropped, 
+                                    terms, pid_, pid_v, log_index, pid, msg >>
 
 v(self) == voter_loop(self)
 
@@ -296,29 +306,30 @@ follower_loop(self) == /\ pc[self] = "follower_loop"
                              THEN /\ \/ /\ pc' = [pc EXCEPT ![self] = "follower_recv_heartbeat"]
                                      \/ /\ pc' = [pc EXCEPT ![self] = "follower_drop_heartbeat"]
                              ELSE /\ pc' = [pc EXCEPT ![self] = "Done"]
-                       /\ UNCHANGED << states, votes, heartbeats, 
+                       /\ UNCHANGED << states, votes, msgs, logs, 
                                        heartbeat_dropped, terms, pid_, 
-                                       vote_index, pid_v, heartbeat_index, pid >>
+                                       vote_index, pid_v, log_index, pid, msg >>
 
 follower_recv_heartbeat(self) == /\ pc[self] = "follower_recv_heartbeat"
-                                 /\ Len(heartbeats[pid[self]]) = heartbeat_index[self]
-                                 /\ IF heartbeats[pid[self]][heartbeat_index[self]].term >= terms[pid[self]]
+                                 /\ Len(msgs[pid[self]]) = log_index[self]
+                                 /\ msg' = [msg EXCEPT ![self] = msgs[pid[self]][log_index[self]]]
+                                 /\ IF msg'[self].src /= pid[self] /\ msg'[self].term >= terms[pid[self]]
                                        THEN /\ states' = [states EXCEPT ![pid[self]] = "follower"]
-                                            /\ terms' = [terms EXCEPT ![pid[self]] = heartbeats[pid[self]][heartbeat_index[self]].term]
+                                            /\ terms' = [terms EXCEPT ![pid[self]] = msg'[self].term]
                                        ELSE /\ TRUE
                                             /\ UNCHANGED << states, terms >>
-                                 /\ heartbeat_index' = [heartbeat_index EXCEPT ![self] = heartbeat_index[self] + 1]
+                                 /\ log_index' = [log_index EXCEPT ![self] = log_index[self] + 1]
                                  /\ heartbeat_dropped' = [heartbeat_dropped EXCEPT ![pid[self]] = FALSE]
                                  /\ pc' = [pc EXCEPT ![self] = "follower_loop"]
-                                 /\ UNCHANGED << votes, heartbeats, pid_, 
+                                 /\ UNCHANGED << votes, msgs, logs, pid_, 
                                                  vote_index, pid_v, pid >>
 
 follower_drop_heartbeat(self) == /\ pc[self] = "follower_drop_heartbeat"
                                  /\ heartbeat_dropped' = [heartbeat_dropped EXCEPT ![pid[self]] = TRUE]
                                  /\ pc' = [pc EXCEPT ![self] = "follower_loop"]
-                                 /\ UNCHANGED << states, votes, heartbeats, 
+                                 /\ UNCHANGED << states, votes, msgs, logs, 
                                                  terms, pid_, vote_index, 
-                                                 pid_v, heartbeat_index, pid >>
+                                                 pid_v, log_index, pid, msg >>
 
 f(self) == follower_loop(self) \/ follower_recv_heartbeat(self)
               \/ follower_drop_heartbeat(self)
@@ -327,13 +338,13 @@ f(self) == follower_loop(self) \/ follower_recv_heartbeat(self)
 Terminating == /\ \A self \in ProcSet: pc[self] = "Done"
                /\ UNCHANGED vars
 
-Next == (\E self \in Servers: l(self))
+Next == (\E self \in Leaders: l(self))
            \/ (\E self \in Voters: v(self))
            \/ (\E self \in Followers: f(self))
            \/ Terminating
 
 Spec == /\ Init /\ [][Next]_vars
-        /\ \A self \in Servers : WF_vars(l(self))
+        /\ \A self \in Leaders : WF_vars(l(self))
         /\ \A self \in Voters : WF_vars(v(self))
         /\ \A self \in Followers : WF_vars(f(self))
 
