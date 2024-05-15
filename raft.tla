@@ -45,10 +45,17 @@ ASSUME
         \* send a message to all server queues.
         Send(queues, msg) == [i \in 1..Len(queues) |-> Append(queues[i], msg)]
 
-        \* overall invariant.
+        \** INVARIANTS (fig 3) **\
+
+        \* at most one leader can be elected in a given term.
+        ElectionSafety == 
+            \A l \in Leaders:
+                IF   states[l] = "leader"
+                THEN \A t \in Leaders: t = l \/ states[t] /= "leader" \/ terms[t] /= terms[l]
+                ELSE TRUE
+
         TypeOK ==
-            \* at most one leader at a time.
-            Len(SelectSeq(states, LAMBDA s: s = "leader")) <= 1
+            ElectionSafety
     }
 
     \* append entries to the log, increment term.
