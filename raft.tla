@@ -33,7 +33,6 @@ ASSUME
 
         \* "log entries; each entry contains command for state machine,
         \* and term when entry was received by leader (first index is 1)".
-        \* these are the committed logs, not the volatile ones.
         logs = [l \in Leaders |-> << >>];
 
     define {
@@ -219,7 +218,7 @@ ASSUME
 
             either {
                 \* "If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower"
-                if (req.src /= pid /\ req.term > currentTerm[pid]) {
+                if (req.src /= pid /\ req.term >= currentTerm[pid]) {
                     states[pid]      := "follower";
                     currentTerm[pid] := req.term;
                 };
@@ -250,10 +249,10 @@ ASSUME
     };
 };
 *)
-\* BEGIN TRANSLATION (chksum(pcal) = "9141fc81" /\ chksum(tla) = "1488f8e3")
-\* Process variable pid of process l at line 150 col 9 changed to pid_
-\* Process variable pid of process v at line 182 col 9 changed to pid_v
-\* Process variable req of process v at line 183 col 9 changed to req_
+\* BEGIN TRANSLATION (chksum(pcal) = "c7401fd0" /\ chksum(tla) = "478cd1e4")
+\* Process variable pid of process l at line 149 col 9 changed to pid_
+\* Process variable pid of process v at line 181 col 9 changed to pid_v
+\* Process variable req of process v at line 182 col 9 changed to req_
 VARIABLES states, currentTerm, votes, msgs, electionTimeout, logs, pc
 
 (* define statement *)
@@ -463,7 +462,7 @@ follower_recv_msg(self) == /\ pc[self] = "follower_recv_msg"
                            /\ Len(msgs[pid[self]]) > 0
                            /\ req' = [req EXCEPT ![self] = Head(msgs[pid[self]])]
                            /\ msgs' = [msgs EXCEPT ![pid[self]] = Tail(msgs[pid[self]])]
-                           /\ \/ /\ IF req'[self].src /= pid[self] /\ req'[self].term > currentTerm[pid[self]]
+                           /\ \/ /\ IF req'[self].src /= pid[self] /\ req'[self].term >= currentTerm[pid[self]]
                                        THEN /\ states' = [states EXCEPT ![pid[self]] = "follower"]
                                             /\ currentTerm' = [currentTerm EXCEPT ![pid[self]] = req'[self].term]
                                        ELSE /\ TRUE
