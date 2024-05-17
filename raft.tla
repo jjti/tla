@@ -40,6 +40,8 @@ ASSUME
         Voters    == N+1   .. N*2
         Followers == N*2+1 .. N*3
 
+        \** HELPERS **\
+
         ToSet(seq)  == {seq[i]: i \in 1..Len(seq)}
         MaxInSet(S) == CHOOSE x \in S : \A y \in S : y <= x
         MinInSet(S) == CHOOSE x \in S : \A y \in S : x =< y
@@ -54,21 +56,20 @@ ASSUME
             IN
                 IF MinLen = 0 THEN TRUE ELSE MatchingUpTo(MaxMatching) = 1..MaxMatching
 
-        \* whether the leader l1 is as at least as up to date as l2.
+        \* whether the candidate sending a vote (RPC) is as or more up-to-date than this voter (pid).
         \* "Raft determines which of two logs is more up-to-date by comparing the index and term of the last entries in the
         \* logs. If the logs have last entries with different terms, then the log with the later term is more up-to-date. If the logs
         \* end with the same term, then whichever log is longer is more up-to-date."
-        UpToDate(l1, l2) ==
-            IF   Len(logs[l2]) = 0
-            THEN TRUE
-            ELSE Len(logs[l1]) > 0 /\
-                (logs[l1][Len(logs[l1])].term > logs[l2][Len(logs[l2])].term \/
-                (logs[l1][Len(logs[l1])].term = logs[l2][Len(logs[l2])].term /\ Len(logs[l1]) >= Len(logs[l2])))
+        UpToDate(pid, vote) ==
+            LET
+                HasLogs == Len(logs[pid]) > 0
+                LastLog == IF HasLogs THEN logs[pid][Len(logs[pid])] ELSE [index |-> 0, term |-> 0]
+            IN
+                \/ ~HasLogs
+                \/ LastLog.term > vote.lastLogTerm
+                \/ Len(logs[pid]) <= vote.lastLogIndex
 
-        \* "at most one leader can be elected in a given term."
-        ElectionSafety == 
-            \A a \in {l \in Leaders : states[l] = "leader"}:
-                \A b \in Leaders \ {a}: states[b] /= "leader" \/ currentTerm[a] /= currentTerm[b]
+        \** PROPERTIES **\
 
         \* "a leader never overwrites or deletes entries in its log; it only appends new entries."
         LeaderAppendOnly == 
@@ -76,6 +77,13 @@ ASSUME
                 \A l \in {l \in Leaders: states[l] = "leader"}:
                     \A i \in 1..Len(logs[l]): logs'[l][i].cmd = logs[l][i].cmd /\ logs'[l][i].term = logs[l][i].term
             ]_logs
+
+        \** INVARIANTS **\
+
+        \* "at most one leader can be elected in a given term."
+        ElectionSafety == 
+            \A a \in {l \in Leaders : states[l] = "leader"}:
+                \A b \in Leaders \ {a}: states[b] /= "leader" \/ currentTerm[a] /= currentTerm[b]
 
         \* "if two logs contain an entry with the same index and term, then the logs are identical in
         \* all entries up through the given index."
@@ -111,7 +119,9 @@ ASSUME
         currentTerm[pid]        := currentTerm[pid]+1; \* "Increment currentTerm"
         votes[currentTerm[pid]] := Append(votes[currentTerm[pid]], [
             src          |-> pid,
-            candidateId  |-> pid
+            candidateId  |-> pid,
+            lastLogIndex |-> Len(logs[pid]),   \* "index of candidate’s last log entry"
+            lastLogTerm  |-> IF Len(logs[pid]) > 0 THEN logs[pid][Len(logs[pid])].term ELSE 0
         ]);
         electionTimeout[pid] := FALSE;
     }
@@ -202,14 +212,16 @@ ASSUME
                     Votes == ToSet(votes[currentTerm[pid]+1])
                 IN
                     \* "candidate’s log is at least as up-to-date as receiver’s log, grant vote"
-                    /\ \E v \in Votes: v.src /= pid /\ UpToDate(v.src, pid)
+                    /\ \E v \in Votes: v.src /= pid /\ UpToDate(pid, v)
                     \* "If votedFor is null or candidateId"
                     /\ ~\E v \in Votes: v.src = pid;
 
-            req := Head(SelectSeq(votes[currentTerm[pid]+1], LAMBDA v: UpToDate(v.src, pid)));
+            req := Head(SelectSeq(votes[currentTerm[pid]+1], LAMBDA v: UpToDate(pid, v)));
             votes[currentTerm[pid]+1] := Append(votes[currentTerm[pid]+1], [
-                src         |-> pid,
-                candidateId |-> req.candidateId
+                src          |-> pid,
+                candidateId  |-> req.candidateId,
+                lastLogTerm  |-> req.lastLogTerm,
+                lastLogIndex |-> req.lastLogIndex
             ]);
         };
     };
@@ -247,8 +259,8 @@ ASSUME
                     if (req.cmd >= 0) { \* -1 for heartbeat.
                         follower_append_log:
                         logs[pid] := Append(logs[pid], [
-                            term |-> req.term,
-                            cmd  |-> req.cmd
+                            term         |-> req.term,
+                            cmd          |-> req.cmd
                         ]);
                     };
                 };
@@ -262,16 +274,18 @@ ASSUME
     };
 };
 *)
-\* BEGIN TRANSLATION (chksum(pcal) = "4f58c9d2" /\ chksum(tla) = "e8275f13")
-\* Process variable pid of process l at line 149 col 9 changed to pid_
-\* Process variable pid of process v at line 194 col 9 changed to pid_v
-\* Process variable req of process v at line 195 col 9 changed to req_
+\* BEGIN TRANSLATION (chksum(pcal) = "98d299bd" /\ chksum(tla) = "1576a4cb")
+\* Process variable pid of process l at line 159 col 9 changed to pid_
+\* Process variable pid of process v at line 204 col 9 changed to pid_v
+\* Process variable req of process v at line 205 col 9 changed to req_
 VARIABLES states, currentTerm, electionTimeout, votes, msgs, logs, pc
 
 (* define statement *)
 Leaders   == 1     .. N
 Voters    == N+1   .. N*2
 Followers == N*2+1 .. N*3
+
+
 
 ToSet(seq)  == {seq[i]: i \in 1..Len(seq)}
 MaxInSet(S) == CHOOSE x \in S : \A y \in S : y <= x
@@ -291,17 +305,16 @@ MatchingPrefix(l1, l2) ==
 
 
 
-UpToDate(l1, l2) ==
-    IF   Len(logs[l2]) = 0
-    THEN TRUE
-    ELSE Len(logs[l1]) > 0 /\
-        (logs[l1][Len(logs[l1])].term > logs[l2][Len(logs[l2])].term \/
-        (logs[l1][Len(logs[l1])].term = logs[l2][Len(logs[l2])].term /\ Len(logs[l1]) >= Len(logs[l2])))
+UpToDate(pid, vote) ==
+    LET
+        HasLogs == Len(logs[pid]) > 0
+        LastLog == IF HasLogs THEN logs[pid][Len(logs[pid])] ELSE [index |-> 0, term |-> 0]
+    IN
+        \/ ~HasLogs
+        \/ LastLog.term > vote.lastLogTerm
+        \/ Len(logs[pid]) <= vote.lastLogIndex
 
 
-ElectionSafety ==
-    \A a \in {l \in Leaders : states[l] = "leader"}:
-        \A b \in Leaders \ {a}: states[b] /= "leader" \/ currentTerm[a] /= currentTerm[b]
 
 
 LeaderAppendOnly ==
@@ -309,6 +322,13 @@ LeaderAppendOnly ==
         \A l \in {l \in Leaders: states[l] = "leader"}:
             \A i \in 1..Len(logs[l]): logs'[l][i].cmd = logs[l][i].cmd /\ logs'[l][i].term = logs[l][i].term
     ]_logs
+
+
+
+
+ElectionSafety ==
+    \A a \in {l \in Leaders : states[l] = "leader"}:
+        \A b \in Leaders \ {a}: states[b] /= "leader" \/ currentTerm[a] /= currentTerm[b]
 
 
 
@@ -385,7 +405,9 @@ request_vote(self) == /\ pc[self] = "request_vote"
                       /\ currentTerm' = [currentTerm EXCEPT ![pid_[self]] = currentTerm[pid_[self]]+1]
                       /\ votes' = [votes EXCEPT ![currentTerm'[pid_[self]]] =                            Append(votes[currentTerm'[pid_[self]]], [
                                                                                   src          |-> pid_[self],
-                                                                                  candidateId  |-> pid_[self]
+                                                                                  candidateId  |-> pid_[self],
+                                                                                  lastLogIndex |-> Len(logs[pid_[self]]),
+                                                                                  lastLogTerm  |-> IF Len(logs[pid_[self]]) > 0 THEN logs[pid_[self]][Len(logs[pid_[self]])].term ELSE 0
                                                                               ])]
                       /\ electionTimeout' = [electionTimeout EXCEPT ![pid_[self]] = FALSE]
                       /\ pc' = [pc EXCEPT ![self] = "check_votes"]
@@ -455,13 +477,15 @@ voter_loop(self) == /\ pc[self] = "voter_loop"
                                       Votes == ToSet(votes[currentTerm[pid_v[self]]+1])
                                   IN
                                   
-                                      /\ \E v \in Votes: v.src /= pid_v[self] /\ UpToDate(v.src, pid_v[self])
+                                      /\ \E v \in Votes: v.src /= pid_v[self] /\ UpToDate(pid_v[self], v)
                                   
                                       /\ ~\E v \in Votes: v.src = pid_v[self]
-                               /\ req_' = [req_ EXCEPT ![self] = Head(SelectSeq(votes[currentTerm[pid_v[self]]+1], LAMBDA v: UpToDate(v.src, pid_v[self])))]
+                               /\ req_' = [req_ EXCEPT ![self] = Head(SelectSeq(votes[currentTerm[pid_v[self]]+1], LAMBDA v: UpToDate(pid_v[self], v)))]
                                /\ votes' = [votes EXCEPT ![currentTerm[pid_v[self]]+1] =                              Append(votes[currentTerm[pid_v[self]]+1], [
-                                                                                             src         |-> pid_v[self],
-                                                                                             candidateId |-> req_'[self].candidateId
+                                                                                             src          |-> pid_v[self],
+                                                                                             candidateId  |-> req_'[self].candidateId,
+                                                                                             lastLogTerm  |-> req_'[self].lastLogTerm,
+                                                                                             lastLogIndex |-> req_'[self].lastLogIndex
                                                                                          ])]
                                /\ pc' = [pc EXCEPT ![self] = "voter_loop"]
                           ELSE /\ pc' = [pc EXCEPT ![self] = "Done"]
@@ -510,8 +534,8 @@ follower_recv_msg(self) == /\ pc[self] = "follower_recv_msg"
 
 follower_append_log(self) == /\ pc[self] = "follower_append_log"
                              /\ logs' = [logs EXCEPT ![pid[self]] =              Append(logs[pid[self]], [
-                                                                        term |-> req[self].term,
-                                                                        cmd  |-> req[self].cmd
+                                                                        term         |-> req[self].term,
+                                                                        cmd          |-> req[self].cmd
                                                                     ])]
                              /\ pc' = [pc EXCEPT ![self] = "follower_clear_dropped_msg"]
                              /\ UNCHANGED << states, currentTerm, 
