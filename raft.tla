@@ -61,7 +61,9 @@ ASSUME
         UpToDate(l1, l2) ==
             IF   Len(logs[l2]) = 0
             THEN TRUE
-            ELSE Len(logs[l1]) > 0 /\ logs[l1][Len(logs[l1])].term >= logs[l2][Len(logs[l2])].term /\ Len(logs[l1]) >= Len(logs[l2])
+            ELSE Len(logs[l1]) > 0 /\
+                (logs[l1][Len(logs[l1])].term > logs[l2][Len(logs[l2])].term \/
+                (logs[l1][Len(logs[l1])].term = logs[l2][Len(logs[l2])].term /\ Len(logs[l1]) >= Len(logs[l2])))
 
         \* "at most one leader can be elected in a given term."
         ElectionSafety == 
@@ -260,10 +262,10 @@ ASSUME
     };
 };
 *)
-\* BEGIN TRANSLATION (chksum(pcal) = "ed08f105" /\ chksum(tla) = "6e0aa7a0")
-\* Process variable pid of process l at line 147 col 9 changed to pid_
-\* Process variable pid of process v at line 192 col 9 changed to pid_v
-\* Process variable req of process v at line 193 col 9 changed to req_
+\* BEGIN TRANSLATION (chksum(pcal) = "4f58c9d2" /\ chksum(tla) = "e8275f13")
+\* Process variable pid of process l at line 149 col 9 changed to pid_
+\* Process variable pid of process v at line 194 col 9 changed to pid_v
+\* Process variable req of process v at line 195 col 9 changed to req_
 VARIABLES states, currentTerm, electionTimeout, votes, msgs, logs, pc
 
 (* define statement *)
@@ -292,7 +294,9 @@ MatchingPrefix(l1, l2) ==
 UpToDate(l1, l2) ==
     IF   Len(logs[l2]) = 0
     THEN TRUE
-    ELSE Len(logs[l1]) > 0 /\ logs[l1][Len(logs[l1])].term >= logs[l2][Len(logs[l2])].term /\ Len(logs[l1]) >= Len(logs[l2])
+    ELSE Len(logs[l1]) > 0 /\
+        (logs[l1][Len(logs[l1])].term > logs[l2][Len(logs[l2])].term \/
+        (logs[l1][Len(logs[l1])].term = logs[l2][Len(logs[l2])].term /\ Len(logs[l1]) >= Len(logs[l2])))
 
 
 ElectionSafety ==
