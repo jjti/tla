@@ -159,7 +159,6 @@ ASSUME
     fair process (l \in Leaders)
     variables
         pid          = self,
-        prevCmd      = 0,
         cmd          = 0, \* current client request index. Goes up to E.
         prevLogIndex = 0, \* "index of log entry immediately preceding new ones"
         prevLogTerm  = 0, 
@@ -179,21 +178,20 @@ ASSUME
 
             prevLogIndex := Len(logs[pid]);
             prevLogTerm  := IF prevLogIndex > 0 THEN logs[pid][prevLogIndex].term ELSE 0;
-            prevCmd      := IF prevLogIndex > 0 THEN logs[pid][prevLogIndex].cmd  ELSE 0;
-            cmd          := prevCmd + 1;
+            cmd          := IF prevLogIndex > 0 THEN logs[pid][prevLogIndex].cmd + 1 ELSE 1;
 
             \* "A log entry is committed once the leader that created the entry has replicated it on a majority of
             \* the servers (e.g., entry 7 in Figure 6). This also commits all preceding entries in the leader’s log,
             \* including entries created by previous leaders."
+            \* skipping the message received here and looking into their logs.
             commitIndex := MaxInSet({  \* get the max log entry
-                i \in 1..prevLogIndex: \* of all those in this leaders log
+                i \in 1..prevLogIndex: \* of all those in this leader's log
                     Cardinality({      \* if the majority
                         l \in Leaders: \* of servers
-                            i <= Len(logs[l]) /\ ( \* have it
-                                /\ logs[l][i].src  = pid
-                                /\ logs[l][i].cmd  = prevCmd
-                                /\ logs[l][i].term = prevLogTerm
-                            )
+                            /\ i <= Len(logs[l]) \* have it
+                            /\ logs[l][i].src  = pid
+                            /\ logs[l][i].cmd  = i
+                            /\ logs[l][i].term = prevLogTerm
                     }) >= M
             } \union {0});
 
@@ -324,9 +322,9 @@ ASSUME
     };
 };
 *)
-\* BEGIN TRANSLATION (chksum(pcal) = "946aec5a" /\ chksum(tla) = "9f4cbe4b")
+\* BEGIN TRANSLATION (chksum(pcal) = "a5a22f9c" /\ chksum(tla) = "cdac8fb")
 \* Process variable pid of process l at line 161 col 9 changed to pid_
-\* Process variable pid of process v at line 232 col 9 changed to pid_v
+\* Process variable pid of process v at line 230 col 9 changed to pid_v
 VARIABLES states, currentTerm, electionTimeout, votes, voted, msgs, logs, pc
 
 (* define statement *)
@@ -414,12 +412,12 @@ StateMachineSafety ==
         \A i \in {i \in 1..Len(logs[a]): i <= Len(logs[b])}:
             (logs[a][i].committed /\ logs[b][i].committed) => logs[a][i].cmd = logs[b][i].cmd
 
-VARIABLES pid_, prevCmd, cmd, prevLogIndex, prevLogTerm, commitIndex, pid_v, 
-          voteReq, pid, msg
+VARIABLES pid_, cmd, prevLogIndex, prevLogTerm, commitIndex, pid_v, voteReq, 
+          pid, msg
 
 vars == << states, currentTerm, electionTimeout, votes, voted, msgs, logs, pc, 
-           pid_, prevCmd, cmd, prevLogIndex, prevLogTerm, commitIndex, pid_v, 
-           voteReq, pid, msg >>
+           pid_, cmd, prevLogIndex, prevLogTerm, commitIndex, pid_v, voteReq, 
+           pid, msg >>
 
 ProcSet == (Leaders) \cup (Voters) \cup (Followers)
 
@@ -433,7 +431,6 @@ Init == (* Global variables *)
         /\ logs = [l \in Leaders |-> << >>]
         (* Process l *)
         /\ pid_ = [self \in Leaders |-> self]
-        /\ prevCmd = [self \in Leaders |-> 0]
         /\ cmd = [self \in Leaders |-> 0]
         /\ prevLogIndex = [self \in Leaders |-> 0]
         /\ prevLogTerm = [self \in Leaders |-> 0]
@@ -453,9 +450,9 @@ leader_loop(self) == /\ pc[self] = "leader_loop"
                            THEN /\ pc' = [pc EXCEPT ![self] = "leader_election"]
                            ELSE /\ pc' = [pc EXCEPT ![self] = "Done"]
                      /\ UNCHANGED << states, currentTerm, electionTimeout, 
-                                     votes, voted, msgs, logs, pid_, prevCmd, 
-                                     cmd, prevLogIndex, prevLogTerm, 
-                                     commitIndex, pid_v, voteReq, pid, msg >>
+                                     votes, voted, msgs, logs, pid_, cmd, 
+                                     prevLogIndex, prevLogTerm, commitIndex, 
+                                     pid_v, voteReq, pid, msg >>
 
 leader_election(self) == /\ pc[self] = "leader_election"
                          /\ IF states[pid_[self]] /= "leader"
@@ -470,22 +467,20 @@ leader_election(self) == /\ pc[self] = "leader_election"
                                     /\ voted' = [voted EXCEPT ![currentTerm'[pid_[self]]][pid_[self]] = TRUE]
                                     /\ electionTimeout' = [electionTimeout EXCEPT ![pid_[self]] = FALSE]
                                     /\ pc' = [pc EXCEPT ![self] = "check_votes"]
-                                    /\ UNCHANGED << msgs, logs, prevCmd, cmd, 
+                                    /\ UNCHANGED << msgs, logs, cmd, 
                                                     prevLogIndex, prevLogTerm, 
                                                     commitIndex >>
                                ELSE /\ prevLogIndex' = [prevLogIndex EXCEPT ![self] = Len(logs[pid_[self]])]
                                     /\ prevLogTerm' = [prevLogTerm EXCEPT ![self] = IF prevLogIndex'[self] > 0 THEN logs[pid_[self]][prevLogIndex'[self]].term ELSE 0]
-                                    /\ prevCmd' = [prevCmd EXCEPT ![self] = IF prevLogIndex'[self] > 0 THEN logs[pid_[self]][prevLogIndex'[self]].cmd  ELSE 0]
-                                    /\ cmd' = [cmd EXCEPT ![self] = prevCmd'[self] + 1]
+                                    /\ cmd' = [cmd EXCEPT ![self] = IF prevLogIndex'[self] > 0 THEN logs[pid_[self]][prevLogIndex'[self]].cmd + 1 ELSE 1]
                                     /\ commitIndex' = [commitIndex EXCEPT ![self] =                MaxInSet({
                                                                                         i \in 1..prevLogIndex'[self]:
                                                                                             Cardinality({
                                                                                                 l \in Leaders:
-                                                                                                    i <= Len(logs[l]) /\ (
-                                                                                                        /\ logs[l][i].src  = pid_[self]
-                                                                                                        /\ logs[l][i].cmd  = prevCmd'[self]
-                                                                                                        /\ logs[l][i].term = prevLogTerm'[self]
-                                                                                                    )
+                                                                                                    /\ i <= Len(logs[l])
+                                                                                                    /\ logs[l][i].src  = pid_[self]
+                                                                                                    /\ logs[l][i].cmd  = i
+                                                                                                    /\ logs[l][i].term = prevLogTerm'[self]
                                                                                             }) >= M
                                                                                     } \union {0})]
                                     /\ logs' = [logs EXCEPT ![pid_[self]] =              AppendLog(
@@ -525,7 +520,7 @@ check_votes(self) == /\ pc[self] = "check_votes"
                                 /\ UNCHANGED states
                      /\ pc' = [pc EXCEPT ![self] = "leader_election"]
                      /\ UNCHANGED << currentTerm, electionTimeout, votes, 
-                                     voted, msgs, logs, pid_, prevCmd, cmd, 
+                                     voted, msgs, logs, pid_, cmd, 
                                      prevLogIndex, prevLogTerm, commitIndex, 
                                      pid_v, voteReq, pid, msg >>
 
@@ -554,9 +549,9 @@ voter_loop(self) == /\ pc[self] = "voter_loop"
                           ELSE /\ pc' = [pc EXCEPT ![self] = "Done"]
                                /\ UNCHANGED << states, currentTerm, votes, 
                                                voted, voteReq >>
-                    /\ UNCHANGED << electionTimeout, msgs, logs, pid_, prevCmd, 
-                                    cmd, prevLogIndex, prevLogTerm, 
-                                    commitIndex, pid_v, pid, msg >>
+                    /\ UNCHANGED << electionTimeout, msgs, logs, pid_, cmd, 
+                                    prevLogIndex, prevLogTerm, commitIndex, 
+                                    pid_v, pid, msg >>
 
 v(self) == voter_loop(self)
 
@@ -599,9 +594,9 @@ follower_loop(self) == /\ pc[self] = "follower_loop"
                                   /\ UNCHANGED << states, currentTerm, 
                                                   electionTimeout, logs >>
                        /\ pc' = [pc EXCEPT ![self] = "follower_loop"]
-                       /\ UNCHANGED << votes, voted, pid_, prevCmd, cmd, 
-                                       prevLogIndex, prevLogTerm, commitIndex, 
-                                       pid_v, voteReq, pid >>
+                       /\ UNCHANGED << votes, voted, pid_, cmd, prevLogIndex, 
+                                       prevLogTerm, commitIndex, pid_v, 
+                                       voteReq, pid >>
 
 f(self) == follower_loop(self)
 
