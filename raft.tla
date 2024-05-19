@@ -122,6 +122,12 @@ ASSUME
             \A a, b \in Leaders: (a # b) =>
                 \A i \in {i \in 1..Len(logs[a]): i <= Len(logs[b])}:
                     (logs[a][i].committed /\ logs[b][i].committed) => logs[a][i].cmd = logs[b][i].cmd
+
+        \* check that at some point the entries are committed. E-1 because the commitIndex is sent in a request that follows
+        \* the one where followers learn of a log entry.
+        BaitInvariant ==
+            ~\A l \in Leaders:
+                \A i \in 1..E-1: Len(logs[l]) >= E /\ logs[l][i].committed /\ logs[l][i].cmd = i
     }
 
     \* "Invoked by candidates to gather votes"
@@ -207,17 +213,17 @@ ASSUME
                 commitIndex
             );
 
-            if (cmd <= E) {
-                \* send entry and commitIndex to followers.
-                msgs := AppendEntries([
-                    src          |-> pid,
-                    cmd          |-> cmd,
-                    term         |-> currentTerm[pid],
-                    prevLogIndex |-> prevLogIndex,
-                    prevLogTerm  |-> prevLogTerm,
-                    commitIndex  |-> commitIndex
-                ]);
-            } else {
+            \* send entry and commitIndex to followers.
+            msgs := AppendEntries([
+                src          |-> pid,
+                cmd          |-> cmd,
+                term         |-> currentTerm[pid],
+                prevLogIndex |-> prevLogIndex,
+                prevLogTerm  |-> prevLogTerm,
+                commitIndex  |-> commitIndex
+            ]);
+
+            if (cmd > E) {
                 \* Shutdown.
                 states := [l \in Leaders |-> "shutdown"];
             };
@@ -322,9 +328,9 @@ ASSUME
     };
 };
 *)
-\* BEGIN TRANSLATION (chksum(pcal) = "a5a22f9c" /\ chksum(tla) = "cdac8fb")
-\* Process variable pid of process l at line 161 col 9 changed to pid_
-\* Process variable pid of process v at line 230 col 9 changed to pid_v
+\* BEGIN TRANSLATION (chksum(pcal) = "e87437a7" /\ chksum(tla) = "e94ceb4e")
+\* Process variable pid of process l at line 167 col 9 changed to pid_
+\* Process variable pid of process v at line 236 col 9 changed to pid_v
 VARIABLES states, currentTerm, electionTimeout, votes, voted, msgs, logs, pc
 
 (* define statement *)
@@ -412,6 +418,12 @@ StateMachineSafety ==
         \A i \in {i \in 1..Len(logs[a]): i <= Len(logs[b])}:
             (logs[a][i].committed /\ logs[b][i].committed) => logs[a][i].cmd = logs[b][i].cmd
 
+
+
+BaitInvariant ==
+    ~\A l \in Leaders:
+        \A i \in 1..E-1: Len(logs[l]) >= E /\ logs[l][i].committed /\ logs[l][i].cmd = i
+
 VARIABLES pid_, cmd, prevLogIndex, prevLogTerm, commitIndex, pid_v, voteReq, 
           pid, msg
 
@@ -493,18 +505,18 @@ leader_election(self) == /\ pc[self] = "leader_election"
                                                                                 ],
                                                                                 commitIndex'[self]
                                                                             )]
-                                    /\ IF cmd'[self] <= E
-                                          THEN /\ msgs' =         AppendEntries([
-                                                              src          |-> pid_[self],
-                                                              cmd          |-> cmd'[self],
-                                                              term         |-> currentTerm[pid_[self]],
-                                                              prevLogIndex |-> prevLogIndex'[self],
-                                                              prevLogTerm  |-> prevLogTerm'[self],
-                                                              commitIndex  |-> commitIndex'[self]
-                                                          ])
+                                    /\ msgs' =         AppendEntries([
+                                                   src          |-> pid_[self],
+                                                   cmd          |-> cmd'[self],
+                                                   term         |-> currentTerm[pid_[self]],
+                                                   prevLogIndex |-> prevLogIndex'[self],
+                                                   prevLogTerm  |-> prevLogTerm'[self],
+                                                   commitIndex  |-> commitIndex'[self]
+                                               ])
+                                    /\ IF cmd'[self] > E
+                                          THEN /\ states' = [l \in Leaders |-> "shutdown"]
+                                          ELSE /\ TRUE
                                                /\ UNCHANGED states
-                                          ELSE /\ states' = [l \in Leaders |-> "shutdown"]
-                                               /\ msgs' = msgs
                                     /\ pc' = [pc EXCEPT ![self] = "leader_loop"]
                                     /\ UNCHANGED << currentTerm, 
                                                     electionTimeout, votes, 
