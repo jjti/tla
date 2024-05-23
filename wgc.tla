@@ -6,9 +6,11 @@ EXTENDS FiniteSets, Naturals, Sequences, TLC
     variables
         side = "left",
         left = {"wolf", "goat", "cabbage"},
-        right = {};
+        right = {},
+        take = "";
 
     define {
+        Options == (IF side = "left" THEN left ELSE right) \union {""}
         Stop ==
             \/ Cardinality(right) = 3
             \/ side = "right" /\ {"wolf", "goat"} \subseteq left
@@ -17,18 +19,12 @@ EXTENDS FiniteSets, Naturals, Sequences, TLC
             \/ side = "left" /\ {"goat", "cabbage"} \subseteq right
     };
 
-    fair process (id=0)
-    variables
-        transport = "",
-        options = {};
     {
         loop:
         while (~Stop) {
-            \* choose one or nothing from this side of the bank
-            options := IF side = "left" THEN left ELSE right;
-            with (o \in options \union {""}) {
+            with (o \in Options) {
                 if (o /= "") {
-                    transport := o;
+                    take := o;
                     if (side = "left") {
                         left := left \ {o};
                         right := right \union {o};
@@ -37,24 +33,21 @@ EXTENDS FiniteSets, Naturals, Sequences, TLC
                         right := right \ {o};
                     };
                 } else {
-                    transport := "empty";
+                    take := "empty";
                 };
             };
 
-            if (Cardinality(right) = 3) {
-                assert FALSE;
-            };
-
-            \* flip sides
-            side := IF side = "left" THEN "right" ELSE "left";
-        };
-    };
-};
+            if (Cardinality(right) = 3) { assert FALSE; };
+            side := IF side = "left" THEN "right" ELSE "left"; \* flip sides
+        }
+    }
+}
 *)
-\* BEGIN TRANSLATION (chksum(pcal) = "d0492699" /\ chksum(tla) = "642d7336")
-VARIABLES side, left, right, pc
+\* BEGIN TRANSLATION (chksum(pcal) = "a3cfccdd" /\ chksum(tla) = "b4abdc46")
+VARIABLES side, left, right, take, pc
 
 (* define statement *)
+Options == (IF side = "left" THEN left ELSE right) \union {""}
 Stop ==
     \/ Cardinality(right) = 3
     \/ side = "right" /\ {"wolf", "goat"} \subseteq left
@@ -62,56 +55,46 @@ Stop ==
     \/ side = "right" /\ {"goat", "cabbage"} \subseteq left
     \/ side = "left" /\ {"goat", "cabbage"} \subseteq right
 
-VARIABLES transport, options
 
-vars == << side, left, right, pc, transport, options >>
-
-ProcSet == {0}
+vars == << side, left, right, take, pc >>
 
 Init == (* Global variables *)
         /\ side = "left"
         /\ left = {"wolf", "goat", "cabbage"}
         /\ right = {}
-        (* Process id *)
-        /\ transport = ""
-        /\ options = {}
-        /\ pc = [self \in ProcSet |-> "loop"]
+        /\ take = ""
+        /\ pc = "loop"
 
-loop == /\ pc[0] = "loop"
+loop == /\ pc = "loop"
         /\ IF ~Stop
-              THEN /\ options' = (IF side = "left" THEN left ELSE right)
-                   /\ \E o \in options' \union {""}:
+              THEN /\ \E o \in Options:
                         IF o /= ""
-                           THEN /\ transport' = o
+                           THEN /\ take' = o
                                 /\ IF side = "left"
                                       THEN /\ left' = left \ {o}
                                            /\ right' = (right \union {o})
                                       ELSE /\ left' = (left \union {o})
                                            /\ right' = right \ {o}
-                           ELSE /\ transport' = "empty"
+                           ELSE /\ take' = "empty"
                                 /\ UNCHANGED << left, right >>
                    /\ IF Cardinality(right') = 3
                          THEN /\ Assert(FALSE, 
-                                        "Failure of assertion at line 45, column 17.")
+                                        "Failure of assertion at line 40, column 43.")
                          ELSE /\ TRUE
                    /\ side' = (IF side = "left" THEN "right" ELSE "left")
-                   /\ pc' = [pc EXCEPT ![0] = "loop"]
-              ELSE /\ pc' = [pc EXCEPT ![0] = "Done"]
-                   /\ UNCHANGED << side, left, right, transport, options >>
-
-id == loop
+                   /\ pc' = "loop"
+              ELSE /\ pc' = "Done"
+                   /\ UNCHANGED << side, left, right, take >>
 
 (* Allow infinite stuttering to prevent deadlock on termination. *)
-Terminating == /\ \A self \in ProcSet: pc[self] = "Done"
-               /\ UNCHANGED vars
+Terminating == pc = "Done" /\ UNCHANGED vars
 
-Next == id
+Next == loop
            \/ Terminating
 
-Spec == /\ Init /\ [][Next]_vars
-        /\ WF_vars(id)
+Spec == Init /\ [][Next]_vars
 
-Termination == <>(\A self \in ProcSet: pc[self] = "Done")
+Termination == <>(pc = "Done")
 
 \* END TRANSLATION 
 ==========================
