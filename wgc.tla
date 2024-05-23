@@ -20,13 +20,11 @@ EXTENDS FiniteSets, Naturals, Sequences, TLC
     fair process (id=0)
     variables
         transport = "",
-        options = {},
-        prefix = ""; 
+        options = {};
     {
         loop:
         while (~Stop) {
             \* choose one or nothing from this side of the bank
-            prefix := IF side = "left" THEN "> " ELSE "< ";
             options := IF side = "left" THEN left ELSE right;
             with (o \in options \union {""}) {
                 if (o /= "") {
@@ -44,7 +42,6 @@ EXTENDS FiniteSets, Naturals, Sequences, TLC
             };
 
             if (Cardinality(right) = 3) {
-                print transport;
                 assert FALSE;
             };
 
@@ -54,7 +51,7 @@ EXTENDS FiniteSets, Naturals, Sequences, TLC
     };
 };
 *)
-\* BEGIN TRANSLATION (chksum(pcal) = "6218d81" /\ chksum(tla) = "fbc41bf7")
+\* BEGIN TRANSLATION (chksum(pcal) = "d0492699" /\ chksum(tla) = "642d7336")
 VARIABLES side, left, right, pc
 
 (* define statement *)
@@ -65,9 +62,9 @@ Stop ==
     \/ side = "right" /\ {"goat", "cabbage"} \subseteq left
     \/ side = "left" /\ {"goat", "cabbage"} \subseteq right
 
-VARIABLES transport, options, prefix
+VARIABLES transport, options
 
-vars == << side, left, right, pc, transport, options, prefix >>
+vars == << side, left, right, pc, transport, options >>
 
 ProcSet == {0}
 
@@ -78,13 +75,11 @@ Init == (* Global variables *)
         (* Process id *)
         /\ transport = ""
         /\ options = {}
-        /\ prefix = ""
         /\ pc = [self \in ProcSet |-> "loop"]
 
 loop == /\ pc[0] = "loop"
         /\ IF ~Stop
-              THEN /\ prefix' = (IF side = "left" THEN "> " ELSE "< ")
-                   /\ options' = (IF side = "left" THEN left ELSE right)
+              THEN /\ options' = (IF side = "left" THEN left ELSE right)
                    /\ \E o \in options' \union {""}:
                         IF o /= ""
                            THEN /\ transport' = o
@@ -96,15 +91,13 @@ loop == /\ pc[0] = "loop"
                            ELSE /\ transport' = "empty"
                                 /\ UNCHANGED << left, right >>
                    /\ IF Cardinality(right') = 3
-                         THEN /\ PrintT(transport')
-                              /\ Assert(FALSE, 
-                                        "Failure of assertion at line 48, column 17.")
+                         THEN /\ Assert(FALSE, 
+                                        "Failure of assertion at line 45, column 17.")
                          ELSE /\ TRUE
                    /\ side' = (IF side = "left" THEN "right" ELSE "left")
                    /\ pc' = [pc EXCEPT ![0] = "loop"]
               ELSE /\ pc' = [pc EXCEPT ![0] = "Done"]
-                   /\ UNCHANGED << side, left, right, transport, options, 
-                                   prefix >>
+                   /\ UNCHANGED << side, left, right, transport, options >>
 
 id == loop
 
