@@ -28,3 +28,16 @@ _Ongaro, Diego, and John Ousterhout. "In search of an understandable consensus a
 - [Vault](https://developer.hashicorp.com/vault/docs/configuration/storage/raft)
 - [etcd](https://github.com/etcd-io/raft)
 - [MongoDB](https://www.usenix.org/conference/nsdi21/presentation/zhou) (modified pull-based version)
+
+### Cassandra
+
+> Cassandra is a distributed storage system for managing very large amounts of structured data spread out across many commodity servers, while providing highly available service with no single point of failure.
+
+_Lakshman, Avinash, and Prashant Malik. "Cassandra: a decentralized structured storage system." ACM SIGOPS operating systems review 44.2 (2010): 35-40._
+
+[PDF](https://www.cl.cam.ac.uk/~ey204/teaching/ACS/R212_2014_2015/papers/lakshman_ladis_2009.pdf)
+
+#### Implementations
+
+- [Apache Cassandra](https://cassandra.apache.org/_/index.html)
+- [ScyllaDB](https://www.scylladb.com/learn/apache-cassandra/alternatives/)
